@@ -43,18 +43,7 @@ const Block: React.FC<BlockProps> = ({
   isPlaced,
   imageUrl
 }) => {
-  // Always use the 0-rotation shape for the local layout
-  const shape = useMemo(() => normalizePoints(rotatePoints(TETROMINO_SHAPES[block.type], 0)), [block.type]);
-  
-  // Calculate centroid for rotation pivot (average of cell centers)
-  const centroid = useMemo(() => {
-    const sumX = shape.reduce((sum, p) => sum + p.x, 0);
-    const sumY = shape.reduce((sum, p) => sum + p.y, 0);
-    return {
-      x: (sumX / shape.length) + 0.5,
-      y: (sumY / shape.length) + 0.5
-    };
-  }, [shape]);
+  const targetShape = useMemo(() => rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation), [block.type, block.targetRotation]);
   
   return (
     <motion.div
@@ -67,7 +56,7 @@ const Block: React.FC<BlockProps> = ({
       animate={{
         x: block.position.x * CELL_SIZE,
         y: block.position.y * CELL_SIZE,
-        rotate: block.rotation,
+        rotate: block.rotation - block.targetRotation,
         zIndex: isPlaced ? 10 : 20,
       }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
@@ -76,19 +65,16 @@ const Block: React.FC<BlockProps> = ({
         top: 0,
         width: CELL_SIZE,
         height: CELL_SIZE,
-        transformOrigin: `${centroid.x * CELL_SIZE}px ${centroid.y * CELL_SIZE}px`
+        transformOrigin: "0 0"
       }}
       whileHover={{ scale: 1.02, zIndex: 50 }}
       whileDrag={{ scale: 1.05, zIndex: 100 }}
       onTap={() => onRotate(block.id)}
     >
       <div className="relative">
-        {shape.map((p, i) => {
-          const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
-          const targetP = targetShape[i];
-          
-          const solvedX = block.targetPosition.x + targetP.x;
-          const solvedY = block.targetPosition.y + targetP.y;
+        {targetShape.map((p, i) => {
+          const solvedX = block.targetPosition.x + p.x;
+          const solvedY = block.targetPosition.y + p.y;
 
           return (
             <div
@@ -103,7 +89,6 @@ const Block: React.FC<BlockProps> = ({
                 backgroundImage: imageUrl ? `url(${imageUrl})` : 'none',
                 backgroundSize: `${GRID_SIZE * CELL_SIZE}px ${GRID_SIZE * CELL_SIZE}px`,
                 backgroundPosition: `-${solvedX * CELL_SIZE}px -${solvedY * CELL_SIZE}px`,
-                // Counteract the target rotation so the image is upright when solved
                 transform: `rotate(${-block.targetRotation}deg)`,
               }}
             />
@@ -128,29 +113,6 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
   imageUrl
 }) => {
   const refBlock = blocks[0];
-
-  // Calculate the centroid of the entire group relative to the refBlock's top-left (0,0)
-  // This centroid is stable for a given group configuration.
-  const centroid = useMemo(() => {
-    let sumX = 0;
-    let sumY = 0;
-    let count = 0;
-    blocks.forEach(block => {
-      // Use the unrotated shape to calculate a stable relative centroid
-      const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[block.type], 0));
-      const relX = block.targetPosition.x - refBlock.targetPosition.x;
-      const relY = block.targetPosition.y - refBlock.targetPosition.y;
-      shape.forEach(p => {
-        sumX += relX + p.x;
-        sumY += relY + p.y;
-        count++;
-      });
-    });
-    return {
-      x: (sumX / count) + 0.5,
-      y: (sumY / count) + 0.5
-    };
-  }, [blocks, refBlock]);
   
   return (
     <motion.div
@@ -163,7 +125,7 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
       animate={{
         x: refBlock.position.x * CELL_SIZE,
         y: refBlock.position.y * CELL_SIZE,
-        rotate: refBlock.rotation,
+        rotate: refBlock.rotation - refBlock.targetRotation,
       }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       style={{
@@ -171,11 +133,11 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
         top: 0,
         width: CELL_SIZE,
         height: CELL_SIZE,
-        transformOrigin: `${centroid.x * CELL_SIZE}px ${centroid.y * CELL_SIZE}px`
+        transformOrigin: "0 0"
       }}
     >
       {blocks.map(block => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[block.type], 0));
+        const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
         const relX = block.targetPosition.x - refBlock.targetPosition.x;
         const relY = block.targetPosition.y - refBlock.targetPosition.y;
 
@@ -191,11 +153,9 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
             }}
             onTap={() => onRotate(block.id)}
           >
-            {shape.map((p, i) => {
-              const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
-              const targetP = targetShape[i];
-              const solvedX = block.targetPosition.x + targetP.x;
-              const solvedY = block.targetPosition.y + targetP.y;
+            {targetShape.map((p, i) => {
+              const solvedX = block.targetPosition.x + p.x;
+              const solvedY = block.targetPosition.y + p.y;
 
               return (
                 <div
@@ -375,44 +335,23 @@ export default function App() {
       const group = prev.filter(b => b.groupId === groupId);
       const refBlock = group.sort((a, b) => a.id.localeCompare(b.id))[0];
 
-      // Calculate group centroid relative to refBlock's top-left (0,0)
-      let sumX = 0, sumY = 0, count = 0;
-      group.forEach(b => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[b.type], 0));
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        shape.forEach(p => {
-          sumX += relX + p.x;
-          sumY += relY + p.y;
-          count++;
-        });
-      });
-      const gcx = sumX / count + 0.5;
-      const gcy = sumY / count + 0.5;
-
       const newRotation = refBlock.rotation + 90;
+      const offset = newRotation - refBlock.targetRotation;
       
-      // Calculate bounds after rotation around centroid
+      // Calculate bounds after rotation around (0,0)
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       
       group.forEach(b => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[b.type], 0));
         const relX = b.targetPosition.x - refBlock.targetPosition.x;
         const relY = b.targetPosition.y - refBlock.targetPosition.y;
+        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
         
-        shape.forEach(p => {
-          const localX = relX + p.x + 0.5;
-          const localY = relY + p.y + 0.5;
-          
-          const rad = (newRotation * Math.PI) / 180;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-          
-          const rx = (localX - gcx) * cos - (localY - gcy) * sin;
-          const ry = (localX - gcx) * sin + (localY - gcy) * cos;
-          
-          const gx = Math.round(refBlock.position.x + gcx + rx - 0.5);
-          const gy = Math.round(refBlock.position.y + gcy + ry - 0.5);
+        const pointsInTarget = targetShape.map(p => ({ x: relX + p.x, y: relY + p.y }));
+        const rotatedPoints = rotatePoints(pointsInTarget, offset);
+        
+        rotatedPoints.forEach(p => {
+          const gx = refBlock.position.x + p.x;
+          const gy = refBlock.position.y + p.y;
           
           minX = Math.min(minX, gx);
           maxX = Math.max(maxX, gx);
@@ -451,42 +390,21 @@ export default function App() {
 
       const group = prev.filter(b => b.groupId === groupId);
       const refBlock = group.sort((a, b) => a.id.localeCompare(b.id))[0];
-
-      // Calculate group centroid relative to refBlock's top-left (0,0)
-      let sumX = 0, sumY = 0, count = 0;
-      group.forEach(b => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[b.type], 0));
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        shape.forEach(p => {
-          sumX += relX + p.x;
-          sumY += relY + p.y;
-          count++;
-        });
-      });
-      const gcx = sumX / count + 0.5;
-      const gcy = sumY / count + 0.5;
       
       // Calculate bounds after move
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       group.forEach(b => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[b.type], 0));
         const relX = b.targetPosition.x - refBlock.targetPosition.x;
         const relY = b.targetPosition.y - refBlock.targetPosition.y;
+        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
+        const offset = b.rotation - b.targetRotation;
         
-        shape.forEach(p => {
-          const localX = relX + p.x + 0.5;
-          const localY = relY + p.y + 0.5;
-          
-          const rad = (b.rotation * Math.PI) / 180;
-          const cos = Math.cos(rad);
-          const sin = Math.sin(rad);
-          
-          const rx = (localX - gcx) * cos - (localY - gcy) * sin;
-          const ry = (localX - gcx) * sin + (localY - gcy) * cos;
-          
-          const gx = Math.round(refBlock.position.x + dx + gcx + rx - 0.5);
-          const gy = Math.round(refBlock.position.y + dy + gcy + ry - 0.5);
+        const pointsInTarget = targetShape.map(p => ({ x: relX + p.x, y: relY + p.y }));
+        const rotatedPoints = rotatePoints(pointsInTarget, offset);
+        
+        rotatedPoints.forEach(p => {
+          const gx = refBlock.position.x + dx + p.x;
+          const gy = refBlock.position.y + dy + p.y;
           
           minX = Math.min(minX, gx);
           maxX = Math.max(maxX, gx);
@@ -519,47 +437,22 @@ export default function App() {
     const allCorrect = blocks.every(block => {
       const group = blocks.filter(b => b.groupId === block.groupId);
       const refBlock = group.sort((a, b) => a.id.localeCompare(b.id))[0];
-      
-      // Calculate group centroid relative to refBlock's top-left (0,0)
-      let sumX = 0, sumY = 0, count = 0;
-      group.forEach(b => {
-        const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[b.type], 0));
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        shape.forEach(p => {
-          sumX += relX + p.x;
-          sumY += relY + p.y;
-          count++;
-        });
-      });
-      const gcx = sumX / count + 0.5;
-      const gcy = sumY / count + 0.5;
 
       // Current occupied cells in grid coordinates
-      const shape = normalizePoints(rotatePoints(TETROMINO_SHAPES[block.type], 0));
       const relX = block.targetPosition.x - refBlock.targetPosition.x;
       const relY = block.targetPosition.y - refBlock.targetPosition.y;
+      const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
+      const offset = block.rotation - block.targetRotation;
       
-      const currentCells = shape.map(p => {
-        const localX = relX + p.x + 0.5;
-        const localY = relY + p.y + 0.5;
-        
-        // Rotate around group centroid
-        const rad = (block.rotation * Math.PI) / 180;
-        const cos = Math.cos(rad);
-        const sin = Math.sin(rad);
-        
-        const rx = (localX - gcx) * cos - (localY - gcy) * sin;
-        const ry = (localX - gcx) * sin + (localY - gcy) * cos;
-        
-        const finalX = Math.round(refBlock.position.x + gcx + rx - 0.5);
-        const finalY = Math.round(refBlock.position.y + gcy + ry - 0.5);
-        
+      const pointsInTarget = targetShape.map(p => ({ x: relX + p.x, y: relY + p.y }));
+      const rotatedPoints = rotatePoints(pointsInTarget, offset);
+      
+      const currentCells = rotatedPoints.map(p => {
+        const finalX = refBlock.position.x + p.x;
+        const finalY = refBlock.position.y + p.y;
         return `${finalX},${finalY}`;
       }).sort();
       
-      // Target occupied cells in grid coordinates
-      const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
       const targetCells = targetShape.map(p => 
         `${Math.round(block.targetPosition.x + p.x)},${Math.round(block.targetPosition.y + p.y)}`
       ).sort();
