@@ -191,27 +191,27 @@
             '4x4': {
                 width: 4,
                 height: 4,
-                offsetX: 3,
-                offsetY: 3,
+                offsetX: 2,
+                offsetY: 2,
                 blocks: [
-                    { type: 'I', targetX: 3, targetY: 3, targetRot: 0 },
-                    { type: 'O', targetX: 3, targetY: 4, targetRot: 0 },
-                    { type: 'O', targetX: 5, targetY: 4, targetRot: 0 },
-                    { type: 'I', targetX: 3, targetY: 6, targetRot: 0 },
+                    { type: 'I', targetX: 2, targetY: 2, targetRot: 0 },
+                    { type: 'O', targetX: 2, targetY: 3, targetRot: 0 },
+                    { type: 'O', targetX: 4, targetY: 3, targetRot: 0 },
+                    { type: 'I', targetX: 2, targetY: 5, targetRot: 0 },
                 ]
             },
             '4x6': {
                 width: 4,
                 height: 6,
-                offsetX: 3,
-                offsetY: 2,
+                offsetX: 2,
+                offsetY: 1,
                 blocks: [
-                    { type: 'I', targetX: 3, targetY: 2, targetRot: 0 },
-                    { type: 'O', targetX: 3, targetY: 3, targetRot: 0 },
-                    { type: 'O', targetX: 5, targetY: 3, targetRot: 0 },
-                    { type: 'J', targetX: 4, targetY: 5, targetRot: 90 },
-                    { type: 'L', targetX: 5, targetY: 7, targetRot: 270 },
-                    { type: 'O', targetX: 4, targetY: 6, targetRot: 0 },
+                    { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
+                    { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
+                    { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
+                    { type: 'J', targetX: 3, targetY: 4, targetRot: 90 },
+                    { type: 'L', targetX: 4, targetY: 6, targetRot: 270 },
+                    { type: 'O', targetX: 3, targetY: 5, targetRot: 0 },
                 ]
             }
         };
@@ -337,84 +337,61 @@
                     const groupId = targetBlock.groupId;
                     setActiveGroupId(groupId);
                     const group = prev.filter(b => b.groupId === groupId);
+                    const refBlock = [...group].sort((a, b) => a.id.localeCompare(b.id))[0];
                     
-                    let totalX = 0, totalY = 0, count = 0;
+                    // 1. Calculate the group's centroid in solved-state relative coordinates
+                    let tx = 0, ty = 0, count = 0;
                     group.forEach(b => {
                         const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-                        const currentOffset = b.rotation - b.targetRotation;
-                        const currentShape = rotatePoints(targetShape, currentOffset);
-                        currentShape.forEach(p => {
-                            totalX += b.position.x + p.x + 0.5;
-                            totalY += b.position.y + p.y + 0.5;
+                        const relX = b.targetPosition.x - refBlock.targetPosition.x;
+                        const relY = b.targetPosition.y - refBlock.targetPosition.y;
+                        targetShape.forEach(p => {
+                            tx += (relX + p.x + 0.5);
+                            ty += (relY + p.y + 0.5);
                             count++;
                         });
                     });
-                    const cx = totalX / count;
-                    const cy = totalY / count;
+                    const gcx = tx / count;
+                    const gcy = ty / count;
 
+                    // 2. Check bounds after a 90-degree rotation around this centroid
                     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                     
                     group.forEach(b => {
                         const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-                        const currentOffset = b.rotation - b.targetRotation;
-                        const currentShape = rotatePoints(targetShape, currentOffset);
+                        const relX = b.targetPosition.x - refBlock.targetPosition.x;
+                        const relY = b.targetPosition.y - refBlock.targetPosition.y;
                         
-                        const bcx = currentShape.reduce((sum, p) => sum + b.position.x + p.x + 0.5, 0) / currentShape.length;
-                        const bcy = currentShape.reduce((sum, p) => sum + b.position.y + p.y + 0.5, 0) / currentShape.length;
-
-                        const newBlockCentroid = rotateAround({ x: bcx, y: bcy }, { x: cx, y: cy }, 90);
-                        
-                        const nextRotation = b.rotation + 90;
-                        const nextOffset = nextRotation - b.targetRotation;
-                        const nextShape = rotatePoints(targetShape, nextOffset);
-                        
-                        const nrbcx = nextShape.reduce((sum, p) => sum + p.x + 0.5, 0) / nextShape.length;
-                        const nrbcy = nextShape.reduce((sum, p) => sum + p.y + 0.5, 0) / nextShape.length;
-
-                        const newPos = { 
-                            x: newBlockCentroid.x - nrbcx, 
-                            y: newBlockCentroid.y - nrbcy 
-                        };
-
-                        nextShape.forEach(p => {
-                            const gx = newPos.x + p.x;
-                            const gy = newPos.y + p.y;
-                            minX = Math.min(minX, gx);
-                            maxX = Math.max(maxX, gx);
-                            minY = Math.min(minY, gy);
-                            maxY = Math.max(maxY, gy);
+                        targetShape.forEach(p => {
+                            const relP = { x: relX + p.x + 0.5, y: relY + p.y + 0.5 };
+                            const rotatedRelP = rotateAround(relP, { x: gcx, y: gcy }, 90);
+                            
+                            const absX = refBlock.position.x + rotatedRelP.x;
+                            const absY = refBlock.position.y + rotatedRelP.y;
+                            
+                            minX = Math.min(minX, absX - 0.5);
+                            maxX = Math.max(maxX, absX + 0.5);
+                            minY = Math.min(minY, absY - 0.5);
+                            maxY = Math.max(maxY, absY + 0.5);
                         });
                     });
                     
+                    // 3. Calculate shift if out of bounds
                     let dx = 0, dy = 0;
                     if (minX < 0) dx = -minX;
-                    if (maxX >= GRID_SIZE) dx = GRID_SIZE - 1 - maxX;
+                    if (maxX > GRID_SIZE) dx = GRID_SIZE - maxX;
                     if (minY < 0) dy = -minY;
-                    if (maxY >= GRID_SIZE) dy = GRID_SIZE - 1 - maxY;
+                    if (maxY > GRID_SIZE) dy = GRID_SIZE - maxY;
 
+                    // 4. Update all blocks in the group
                     const finalBlocks = prev.map(b => {
                         if (b.groupId !== groupId) return b;
-                        
-                        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-                        const currentOffset = b.rotation - b.targetRotation;
-                        const currentShape = rotatePoints(targetShape, currentOffset);
-                        const bcx = currentShape.reduce((sum, p) => sum + b.position.x + p.x + 0.5, 0) / currentShape.length;
-                        const bcy = currentShape.reduce((sum, p) => sum + b.position.y + p.y + 0.5, 0) / currentShape.length;
-
-                        const newBlockCentroid = rotateAround({ x: bcx, y: bcy }, { x: cx, y: cy }, 90);
-                        
-                        const nextRotation = b.rotation + 90;
-                        const nextOffset = nextRotation - b.targetRotation;
-                        const nextShape = rotatePoints(targetShape, nextOffset);
-                        const nrbcx = nextShape.reduce((sum, p) => sum + p.x + 0.5, 0) / nextShape.length;
-                        const nrbcy = nextShape.reduce((sum, p) => sum + p.y + 0.5, 0) / nextShape.length;
-                        
                         return { 
                             ...b, 
-                            rotation: nextRotation,
+                            rotation: b.rotation + 90,
                             position: { 
-                                x: newBlockCentroid.x - nrbcx + dx, 
-                                y: newBlockCentroid.y - nrbcy + dy
+                                x: b.position.x + dx, 
+                                y: b.position.y + dy
                             } 
                         };
                     });
