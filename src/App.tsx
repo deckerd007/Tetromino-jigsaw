@@ -126,15 +126,20 @@ interface BlockGroupProps {
   onDragEnd: (b: Tetromino, event: any, info: any) => void;
   onRotate: (id: string) => void;
   imageUrl?: string;
+  activeGroupId: string | null;
+  onDragStart: (groupId: string) => void;
 }
 
 const BlockGroup: React.FC<BlockGroupProps> = ({ 
   blocks, 
   onDragEnd, 
   onRotate,
-  imageUrl
+  imageUrl,
+  activeGroupId,
+  onDragStart
 }) => {
   const refBlock = blocks[0];
+  const isActive = activeGroupId === refBlock.groupId;
 
   const centroid = useMemo(() => {
     let tx = 0, ty = 0, count = 0;
@@ -156,6 +161,7 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
       layout
       drag
       dragMomentum={false}
+      onDragStart={() => onDragStart(refBlock.groupId)}
       onDragEnd={(event, info) => onDragEnd(refBlock, event, info)}
       className="absolute cursor-grab active:cursor-grabbing z-10 tetromino-block drop-shadow-md"
       initial={false}
@@ -163,6 +169,7 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
         x: refBlock.position.x * CELL_SIZE,
         y: refBlock.position.y * CELL_SIZE,
         rotate: refBlock.rotation - refBlock.targetRotation,
+        zIndex: isActive ? 100 : 10,
       }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       style={{
@@ -258,6 +265,7 @@ export default function App() {
   const [puzzleImage, setPuzzleImage] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<PuzzleSize>('4x4');
   const [gameStarted, setGameStarted] = useState(false);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
 
   // Initialize game
@@ -348,7 +356,7 @@ export default function App() {
         const relX = a.position.x - b.position.x;
         const relY = a.position.y - b.position.y;
 
-        if (Math.abs(relX - rotatedTargetRel.x) < 0.25 && Math.abs(relY - rotatedTargetRel.y) < 0.25) {
+        if (Math.abs(relX - rotatedTargetRel.x) < 0.3 && Math.abs(relY - rotatedTargetRel.y) < 0.3) {
           // Merge groups and snap to exact relative position
           const oldGroupId = b.groupId;
           const newGroupId = a.groupId;
@@ -376,6 +384,7 @@ export default function App() {
       if (!targetBlock) return prev;
 
       const groupId = targetBlock.groupId;
+      setActiveGroupId(groupId);
       const group = prev.filter(b => b.groupId === groupId);
       
       // Calculate current centroid
@@ -470,6 +479,7 @@ export default function App() {
   };
 
   const onDragEnd = (block: Tetromino, event: any, info: any) => {
+    setActiveGroupId(null);
     setBlocks(prev => {
       const groupId = block.groupId;
       const dx = info.offset.x / CELL_SIZE;
@@ -627,6 +637,8 @@ export default function App() {
                 onDragEnd={onDragEnd} 
                 onRotate={handleRotate}
                 imageUrl={puzzleImage}
+                activeGroupId={activeGroupId}
+                onDragStart={setActiveGroupId}
               />
             ))}
           </div>
