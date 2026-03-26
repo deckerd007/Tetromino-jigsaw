@@ -17,9 +17,3 @@ export interface Tetromino {
   targetRotation: number;
 }
 
-export interface GameState {
-  placedBlocks: Tetromino[];
-  availableBlocks: Tetromino[];
-  targetGrid: boolean[][]; // true if cell needs to be filled
-  gridSize: number;
-}
