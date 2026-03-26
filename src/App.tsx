@@ -243,12 +243,14 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
     offsetX: 2,
     offsetY: 1,
     blocks: [
+      // Top section (I, O, O) - Rows 1, 2, 3
       { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
       { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
-      { type: 'J', targetX: 4, targetY: 1, targetRot: 90 },
-      { type: 'L', targetX: 2, targetY: 4, targetRot: 0 },
-      { type: 'S', targetX: 3, targetY: 5, targetRot: 0 },
-      { type: 'T', targetX: 2, targetY: 6, targetRot: 0 },
+      { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
+      // Bottom section (J, L, O) - Rows 4, 5, 6
+      { type: 'J', targetX: 3, targetY: 4, targetRot: 90 },
+      { type: 'L', targetX: 4, targetY: 6, targetRot: 270 },
+      { type: 'O', targetX: 3, targetY: 5, targetRot: 0 },
     ]
   }
 };
@@ -646,10 +648,10 @@ export default function App() {
             <div 
               className="absolute border-4 border-dashed border-[#141414] pointer-events-none z-0"
               style={{
-                left: 2 * CELL_SIZE,
-                top: 2 * CELL_SIZE,
-                width: 4 * CELL_SIZE,
-                height: 4 * CELL_SIZE,
+                left: PUZZLE_CONFIGS[selectedSize].offsetX * CELL_SIZE,
+                top: PUZZLE_CONFIGS[selectedSize].offsetY * CELL_SIZE,
+                width: PUZZLE_CONFIGS[selectedSize].width * CELL_SIZE,
+                height: PUZZLE_CONFIGS[selectedSize].height * CELL_SIZE,
                 backgroundColor: 'rgba(20,20,20,0.03)'
               }}
             />
