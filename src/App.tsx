@@ -222,26 +222,56 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
   );
 }
 
+type PuzzleSize = '4x4' | '4x6';
+
+const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offsetX: number; offsetY: number; blocks: { type: TetrominoType; targetX: number; targetY: number; targetRot: number }[] }> = {
+  '4x4': {
+    width: 4,
+    height: 4,
+    offsetX: 2,
+    offsetY: 2,
+    blocks: [
+      { type: 'I', targetX: 2, targetY: 2, targetRot: 0 },
+      { type: 'O', targetX: 2, targetY: 3, targetRot: 0 },
+      { type: 'O', targetX: 4, targetY: 3, targetRot: 0 },
+      { type: 'I', targetX: 2, targetY: 5, targetRot: 0 },
+    ]
+  },
+  '4x6': {
+    width: 4,
+    height: 6,
+    offsetX: 2,
+    offsetY: 1,
+    blocks: [
+      { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
+      { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
+      { type: 'J', targetX: 4, targetY: 1, targetRot: 90 },
+      { type: 'L', targetX: 2, targetY: 4, targetRot: 0 },
+      { type: 'S', targetX: 3, targetY: 5, targetRot: 0 },
+      { type: 'T', targetX: 2, targetY: 6, targetRot: 0 },
+    ]
+  }
+};
+
 export default function App() {
   const [blocks, setBlocks] = useState<Tetromino[]>([]);
   const [targetGrid, setTargetGrid] = useState<boolean[][]>([]);
   const [gameWon, setGameWon] = useState(false);
   const [puzzleImage, setPuzzleImage] = useState<string>('');
+  const [selectedSize, setSelectedSize] = useState<PuzzleSize>('4x4');
   const boardRef = useRef<HTMLDivElement>(null);
 
   // Initialize game
   useEffect(() => {
-    startNewGame();
-  }, []);
+    startNewGame(selectedSize);
+  }, [selectedSize]);
 
-  const startNewGame = () => {
+  const startNewGame = (size: PuzzleSize = selectedSize) => {
+    const config = PUZZLE_CONFIGS[size];
     const newGrid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(false));
     
-    // Simpler 4x4 target area (16 cells)
-    const offset = 2;
-    const size = 4;
-    for (let y = offset; y < offset + size; y++) {
-      for (let x = offset; x < offset + size; x++) {
+    for (let y = config.offsetY; y < config.offsetY + config.height; y++) {
+      for (let x = config.offsetX; x < config.offsetX + config.width; x++) {
         newGrid[y][x] = true;
       }
     }
@@ -252,16 +282,7 @@ export default function App() {
     const imageUrl = `https://picsum.photos/seed/${randomSeed}/400/400`;
     setPuzzleImage(imageUrl);
 
-    // Define a fixed 4x4 solution layout using 4 blocks
-    // This ensures a single solution exists
-    const solutionLayout: { type: TetrominoType; targetX: number; targetY: number; targetRot: number }[] = [
-      { type: 'I', targetX: 2, targetY: 2, targetRot: 0 }, // Top row
-      { type: 'I', targetX: 2, targetY: 5, targetRot: 0 }, // Bottom row
-      { type: 'O', targetX: 2, targetY: 3, targetRot: 0 }, // Middle left
-      { type: 'O', targetX: 4, targetY: 3, targetRot: 0 }, // Middle right
-    ];
-
-    const initialBlocks: Tetromino[] = solutionLayout.map((config, i) => {
+    const initialBlocks: Tetromino[] = config.blocks.map((blockConfig, i) => {
       const id = `block-${i}-${Date.now()}`;
       // Random starting position on the board, but not exactly at target
       const startX = Math.floor(Math.random() * (GRID_SIZE - 2));
@@ -270,14 +291,14 @@ export default function App() {
       return {
         id,
         groupId: id,
-        type: config.type,
+        type: blockConfig.type,
         position: { x: startX, y: startY },
         // Randomize starting rotation for challenge
         rotation: [0, 90, 180, 270][Math.floor(Math.random() * 4)],
         isPlaced: true,
-        color: TETROMINO_COLORS[config.type],
-        targetPosition: { x: config.targetX, y: config.targetY },
-        targetRotation: config.targetRot,
+        color: TETROMINO_COLORS[blockConfig.type],
+        targetPosition: { x: blockConfig.targetX, y: blockConfig.targetY },
+        targetRotation: blockConfig.targetRot,
       };
     });
     
@@ -557,9 +578,26 @@ export default function App() {
           <h1 className="text-4xl sm:text-6xl font-black uppercase tracking-tighter leading-none">Tetromino</h1>
           <h2 className="text-xl sm:text-2xl font-serif italic opacity-60">Jigsaw Puzzle</h2>
         </div>
-        <div className="flex-shrink-0">
+        
+        <div className="flex items-center gap-4">
+          <div className="flex bg-[#141414]/10 p-1 rounded-sm">
+            {(['4x4', '4x6'] as PuzzleSize[]).map(size => (
+              <button
+                key={size}
+                onClick={() => setSelectedSize(size)}
+                className={`px-4 py-1 font-bold uppercase tracking-widest transition-all ${
+                  selectedSize === size 
+                    ? 'bg-[#141414] text-[#E4E3E0]' 
+                    : 'text-[#141414] hover:bg-[#141414]/5'
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+
           <button 
-            onClick={startNewGame}
+            onClick={() => startNewGame()}
             className="px-6 py-2 bg-[#141414] text-[#E4E3E0] font-bold uppercase tracking-widest hover:bg-opacity-80 transition-all flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none"
           >
             <RotateCcw size={18} />
