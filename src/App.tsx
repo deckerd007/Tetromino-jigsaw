@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RotateCcw, Trash2, Trophy } from 'lucide-react';
+import { RotateCcw, RotateCw, Trash2, CheckCircle2, Trophy, Info } from 'lucide-react';
 import { Tetromino, TetrominoType, Point } from './types';
 import { TETROMINO_SHAPES, TETROMINO_COLORS, GRID_SIZE, CELL_SIZE } from './constants';
 
@@ -20,6 +20,83 @@ const rotatePoints = (points: Point[], rotation: number): Point[] => {
     y: p.x * sin + p.y * cos
   }));
 };
+
+// Helper to get normalized points (min x, y = 0)
+const normalizePoints = (points: Point[]): Point[] => {
+  const minX = Math.min(...points.map(p => p.x));
+  const minY = Math.min(...points.map(p => p.y));
+  return points.map(p => ({ x: p.x - minX, y: p.y - minY }));
+};
+
+interface BlockProps {
+  block: Tetromino;
+  onDragEnd: (b: Tetromino, event: any, info: any) => void;
+  onRotate: (id: string) => void;
+  isPlaced: boolean;
+  imageUrl?: string;
+}
+
+const Block: React.FC<BlockProps> = ({ 
+  block, 
+  onDragEnd, 
+  onRotate,
+  isPlaced,
+  imageUrl
+}) => {
+  const targetShape = useMemo(() => rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation), [block.type, block.targetRotation]);
+  
+  return (
+    <motion.div
+      layoutId={block.id}
+      drag
+      dragMomentum={false}
+      onDragEnd={(event, info) => onDragEnd(block, event, info)}
+      className="absolute cursor-grab active:cursor-grabbing z-10 tetromino-block drop-shadow-md"
+      initial={false}
+      animate={{
+        x: block.position.x * CELL_SIZE,
+        y: block.position.y * CELL_SIZE,
+        rotate: block.rotation - block.targetRotation,
+        zIndex: isPlaced ? 10 : 20,
+      }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      style={{
+        left: 0,
+        top: 0,
+        width: CELL_SIZE,
+        height: CELL_SIZE,
+        transformOrigin: "0 0"
+      }}
+      whileHover={{ scale: 1.02, zIndex: 50 }}
+      whileDrag={{ scale: 1.05, zIndex: 100 }}
+      onTap={() => onRotate(block.id)}
+    >
+      <div className="relative">
+        {targetShape.map((p, i) => {
+          const solvedX = block.targetPosition.x + p.x;
+          const solvedY = block.targetPosition.y + p.y;
+
+          return (
+            <div
+              key={i}
+              className="absolute overflow-hidden"
+              style={{
+                width: CELL_SIZE,
+                height: CELL_SIZE,
+                left: p.x * CELL_SIZE,
+                top: p.y * CELL_SIZE,
+                backgroundColor: '#f0f0f0',
+                backgroundImage: imageUrl ? `url(${imageUrl})` : 'none',
+                backgroundSize: `${GRID_SIZE * CELL_SIZE}px ${GRID_SIZE * CELL_SIZE}px`,
+                backgroundPosition: `-${solvedX * CELL_SIZE}px -${solvedY * CELL_SIZE}px`,
+              }}
+            />
+          );
+        })}
+      </div>
+    </motion.div>
+  );
+}
 
 interface BlockGroupProps {
   blocks: Tetromino[];
@@ -92,7 +169,6 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
                     backgroundImage: imageUrl ? `url(${imageUrl})` : 'none',
                     backgroundSize: `${GRID_SIZE * CELL_SIZE}px ${GRID_SIZE * CELL_SIZE}px`,
                     backgroundPosition: `-${solvedX * CELL_SIZE}px -${solvedY * CELL_SIZE}px`,
-                    transform: `rotate(${-(block.rotation - block.targetRotation)}deg)`,
                   }}
                 />
               );
@@ -139,21 +215,12 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
 
 export default function App() {
   const [blocks, setBlocks] = useState<Tetromino[]>([]);
+  const [targetGrid, setTargetGrid] = useState<boolean[][]>([]);
   const [gameWon, setGameWon] = useState(false);
   const [puzzleImage, setPuzzleImage] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<PuzzleSize>('4x4');
   const [gameStarted, setGameStarted] = useState(false);
-  const [boardSize, setBoardSize] = useState(() => Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40));
   const boardRef = useRef<HTMLDivElement>(null);
-
-  // Respond to window resizes
-  useEffect(() => {
-    const handleResize = () => {
-      setBoardSize(Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40));
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // Initialize game
   useEffect(() => {
@@ -162,6 +229,14 @@ export default function App() {
 
   const startNewGame = (size: PuzzleSize = selectedSize) => {
     const config = PUZZLE_CONFIGS[size];
+    const newGrid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(false));
+    
+    for (let y = config.offsetY; y < config.offsetY + config.height; y++) {
+      for (let x = config.offsetX; x < config.offsetX + config.width; x++) {
+        newGrid[y][x] = true;
+      }
+    }
+    setTargetGrid(newGrid);
 
     // New random image for each game
     const randomSeed = Math.floor(Math.random() * 1000);
@@ -292,10 +367,19 @@ export default function App() {
 
       const finalBlocks = prev.map(b => {
         if (b.groupId !== groupId) return b;
+        
+        const relX = b.targetPosition.x - refBlock.targetPosition.x;
+        const relY = b.targetPosition.y - refBlock.targetPosition.y;
+        const newOffset = (b.rotation + 90) - b.targetRotation;
+        const finalRotatedRel = rotatePoints([{ x: relX, y: relY }], newOffset)[0];
+
         return { 
           ...b, 
           rotation: b.rotation + 90,
-          position: { x: b.position.x + dx, y: b.position.y + dy } 
+          position: { 
+            x: refBlock.position.x + dx + finalRotatedRel.x, 
+            y: refBlock.position.y + dy + finalRotatedRel.y 
+          } 
         };
       });
 
@@ -455,9 +539,9 @@ export default function App() {
           <div 
             ref={boardRef}
             className="relative border-4 border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]"
-            style={{
-              width: boardSize,
-              height: boardSize,
+            style={{ 
+              width: Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40), 
+              height: Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40),
             }}
           >
             {/* Target Area Outline */}
