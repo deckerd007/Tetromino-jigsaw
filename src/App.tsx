@@ -9,16 +9,38 @@ import { RotateCcw, RotateCw, Trash2, CheckCircle2, Trophy, Info } from 'lucide-
 import { Tetromino, TetrominoType, Point } from './types';
 import { TETROMINO_SHAPES, TETROMINO_COLORS, GRID_SIZE, CELL_SIZE } from './constants';
 
+const TETROMINO_CENTERS: Record<TetrominoType, {x: number, y: number}> = {
+  I: {x: 2, y: 1},
+  J: {x: 1.5, y: 1.5},
+  L: {x: 1.5, y: 1.5},
+  O: {x: 1, y: 1},
+  S: {x: 1.5, y: 1.5},
+  T: {x: 1.5, y: 1.5},
+  Z: {x: 1.5, y: 1.5}
+};
+
 // Helper to rotate points
-const rotatePoints = (points: Point[], rotation: number): Point[] => {
-  const rad = (rotation * Math.PI) / 180;
-  const cos = Math.round(Math.cos(rad));
-  const sin = Math.round(Math.sin(rad));
+const rotatePoints = (type: TetrominoType, rotation: number): Point[] => {
+  const points = TETROMINO_SHAPES[type];
+  if (rotation === 0) return points;
   
-  return points.map(p => ({
-    x: p.x * cos - p.y * sin,
-    y: p.x * sin + p.y * cos
-  }));
+  const cx = TETROMINO_CENTERS[type].x;
+  const cy = TETROMINO_CENTERS[type].y;
+  
+  return points.map(p => {
+    // Center of the cell
+    const cellCx = p.x + 0.5;
+    const cellCy = p.y + 0.5;
+    
+    // Rotate around local center
+    const rotated = rotateAround({ x: cellCx, y: cellCy }, { x: cx, y: cy }, rotation);
+    
+    // Convert back to top-left coordinate
+    return {
+      x: Math.round(rotated.x - 0.5),
+      y: Math.round(rotated.y - 0.5)
+    };
+  });
 };
 
 // Helper to rotate a point around a center
@@ -58,7 +80,7 @@ const Block: React.FC<BlockProps> = ({
   isPlaced,
   imageUrl
 }) => {
-  const targetShape = useMemo(() => rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation), [block.type, block.targetRotation]);
+  const targetShape = useMemo(() => rotatePoints(block.type, block.targetRotation), [block.type, block.targetRotation]);
   
   const centroid = useMemo(() => {
     const tx = targetShape.reduce((sum, p) => sum + p.x + 0.5, 0) / targetShape.length;
@@ -144,7 +166,7 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
   const centroid = useMemo(() => {
     let tx = 0, ty = 0, count = 0;
     blocks.forEach(b => {
-      const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
+      const targetShape = rotatePoints(b.type, b.targetRotation);
       const relX = b.targetPosition.x - refBlock.targetPosition.x;
       const relY = b.targetPosition.y - refBlock.targetPosition.y;
       targetShape.forEach(p => {
@@ -181,7 +203,7 @@ const BlockGroup: React.FC<BlockGroupProps> = ({
       }}
     >
       {blocks.map(block => {
-        const targetShape = rotatePoints(TETROMINO_SHAPES[block.type], block.targetRotation);
+        const targetShape = rotatePoints(block.type, block.targetRotation);
         const relX = block.targetPosition.x - refBlock.targetPosition.x;
         const relY = block.targetPosition.y - refBlock.targetPosition.y;
 
@@ -351,7 +373,8 @@ export default function App() {
         const targetRelY = a.targetPosition.y - b.targetPosition.y;
         
         // Rotate the target relative vector by the current group rotation offset
-        const rotatedTargetRel = rotatePoints([{ x: targetRelX, y: targetRelY }], offsetA)[0];
+        const rotatedTargetRelRaw = rotateAround({ x: targetRelX, y: targetRelY }, { x: 0, y: 0 }, offsetA);
+        const rotatedTargetRel = { x: Math.round(rotatedTargetRelRaw.x), y: Math.round(rotatedTargetRelRaw.y) };
 
         const relX = a.position.x - b.position.x;
         const relY = a.position.y - b.position.y;
@@ -386,70 +409,57 @@ export default function App() {
       const groupId = targetBlock.groupId;
       setActiveGroupId(groupId);
       const group = prev.filter(b => b.groupId === groupId);
-      const refBlock = group.sort((a, b) => a.id.localeCompare(b.id))[0];
       
-      // 1. Calculate the group's centroid in solved-state relative coordinates
-      // This matches the transformOrigin used in the BlockGroup component
-      let tx = 0, ty = 0, count = 0;
+      // 1. Calculate the exact global center of mass of the group
+      let sumX = 0, sumY = 0, count = 0;
       group.forEach(b => {
-        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        targetShape.forEach(p => {
-          tx += (relX + p.x + 0.5);
-          ty += (relY + p.y + 0.5);
-          count++;
-        });
+        const localCenter = TETROMINO_CENTERS[b.type];
+        sumX += b.position.x + localCenter.x;
+        sumY += b.position.y + localCenter.y;
+        count++;
       });
-      const gcx = tx / count;
-      const gcy = ty / count;
+      let cx = sumX / count;
+      let cy = sumY / count;
 
-      // 2. Check bounds after a 90-degree rotation around this centroid
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      // 2. Round the group center to the nearest grid intersection or cell center
+      // This ensures that 90-degree rotations keep all blocks aligned to the grid!
+      const ix = Math.round(cx);
+      const iy = Math.round(cy);
+      const dist1 = Math.pow(cx - ix, 2) + Math.pow(cy - iy, 2);
       
-      group.forEach(b => {
-        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        const nextOffset = (b.rotation + 90) - b.targetRotation;
-        
-        targetShape.forEach(p => {
-          const relP = { x: relX + p.x + 0.5, y: relY + p.y + 0.5 };
-          // Rotate the point around the group centroid
-          const rotatedRelP = rotateAround(relP, { x: gcx, y: gcy }, 90);
-          
-          // Absolute position = refBlock.position + rotated relative position
-          const absX = refBlock.position.x + rotatedRelP.x;
-          const absY = refBlock.position.y + rotatedRelP.y;
-          
-          minX = Math.min(minX, absX - 0.5);
-          maxX = Math.max(maxX, absX + 0.5);
-          minY = Math.min(minY, absY - 0.5);
-          maxY = Math.max(maxY, absY + 0.5);
-        });
-      });
+      const hx = Math.floor(cx) + 0.5;
+      const hy = Math.floor(cy) + 0.5;
+      const dist2 = Math.pow(cx - hx, 2) + Math.pow(cy - hy, 2);
       
-      // 3. Calculate shift if out of bounds
-      let dx = 0, dy = 0;
-      if (minX < 0) dx = -minX;
-      if (maxX > GRID_SIZE) dx = GRID_SIZE - maxX;
-      if (minY < 0) dy = -minY;
-      if (maxY > GRID_SIZE) dy = GRID_SIZE - maxY;
+      if (dist1 < dist2) {
+        cx = ix;
+        cy = iy;
+      } else {
+        cx = hx;
+        cy = hy;
+      }
 
-      // 4. Update all blocks in the group
-      const finalBlocks = prev.map(b => {
+      const rotatedBlocks = prev.map(b => {
         if (b.groupId !== groupId) return b;
-        return { 
-          ...b, 
-          rotation: b.rotation + 90,
-          position: { 
-            x: b.position.x + dx, 
-            y: b.position.y + dy
-          } 
+
+        const localCenter = TETROMINO_CENTERS[b.type];
+        const blockCx = b.position.x + localCenter.x;
+        const blockCy = b.position.y + localCenter.y;
+
+        // Rotate the block's center around the group's global center by 90 degrees clockwise
+        const newBlockCenter = rotateAround({ x: blockCx, y: blockCy }, { x: cx, y: cy }, 90);
+
+        return {
+          ...b,
+          position: {
+            x: Math.round(newBlockCenter.x - localCenter.x),
+            y: Math.round(newBlockCenter.y - localCenter.y)
+          },
+          rotation: (b.rotation + 90) % 360
         };
       });
 
-      return checkGrouping(finalBlocks);
+      return checkGrouping(rotatedBlocks);
     });
   };
 
@@ -457,42 +467,13 @@ export default function App() {
     setActiveGroupId(null);
     setBlocks(prev => {
       const groupId = block.groupId;
-      const dx = info.offset.x / CELL_SIZE;
-      const dy = info.offset.y / CELL_SIZE;
+      const dx = Math.round(info.offset.x / CELL_SIZE);
+      const dy = Math.round(info.offset.y / CELL_SIZE);
 
-      if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) return prev;
-
-      const group = prev.filter(b => b.groupId === groupId);
-      const refBlock = group.sort((a, b) => a.id.localeCompare(b.id))[0];
-      
-      // Calculate bounds after move
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      group.forEach(b => {
-        const targetShape = rotatePoints(TETROMINO_SHAPES[b.type], b.targetRotation);
-        const offset = b.rotation - b.targetRotation;
-        const currentShape = rotatePoints(targetShape, offset);
-        
-        currentShape.forEach(p => {
-          const gx = b.position.x + dx + p.x;
-          const gy = b.position.y + dy + p.y;
-          
-          minX = Math.min(minX, gx);
-          maxX = Math.max(maxX, gx);
-          minY = Math.min(minY, gy);
-          maxY = Math.max(maxY, gy);
-        });
-      });
-
-      // Clamp to board (optional, but keeps pieces visible)
-      let finalDx = dx;
-      let finalDy = dy;
-      if (minX < 0) finalDx -= minX;
-      if (maxX >= GRID_SIZE) finalDx -= (maxX - (GRID_SIZE - 1));
-      if (minY < 0) finalDy -= minY;
-      if (maxY >= GRID_SIZE) finalDy -= (maxY - (GRID_SIZE - 1));
+      if (dx === 0 && dy === 0) return prev;
 
       const nextBlocks = prev.map(b => 
-        b.groupId === groupId ? { ...b, position: { x: b.position.x + finalDx, y: b.position.y + finalDy } } : b
+        b.groupId === groupId ? { ...b, position: { x: b.position.x + dx, y: b.position.y + dy } } : b
       );
       
       return checkGrouping(nextBlocks);
@@ -510,13 +491,14 @@ export default function App() {
       );
       const rotDiff = (Math.abs(block.rotation - block.targetRotation) % 360 + 360) % 360;
       
-      return posDiff < 0.3 && (rotDiff < 5 || rotDiff > 355);
+      // Relaxed threshold for better reliability
+      return posDiff < 0.5 && (rotDiff < 10 || rotDiff > 350);
     });
 
     if (allCorrect) {
       setGameWon(true);
     }
-  }, [blocks]);
+  }, [blocks, gameStarted]);
 
   // Group blocks by groupId and sort them for a stable refBlock
   const groupedBlocks = useMemo(() => {
