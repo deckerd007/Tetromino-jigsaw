@@ -27,21 +27,25 @@ const rotatePoints = (type: TetrominoType, rotation: number): Point[] => {
   const cx = TETROMINO_CENTERS[type].x;
   const cy = TETROMINO_CENTERS[type].y;
   
-  return points.map(p => {
+  const rotated = points.map(p => {
     // Center of the cell
     const cellCx = p.x + 0.5;
     const cellCy = p.y + 0.5;
     
     // Rotate around local center
-    const rotated = rotateAround({ x: cellCx, y: cellCy }, { x: cx, y: cy }, rotation);
+    const r = rotateAround({ x: cellCx, y: cellCy }, { x: cx, y: cy }, rotation);
     
     // Convert back to top-left coordinate
     return {
-      x: Math.round(rotated.x - 0.5),
-      y: Math.round(rotated.y - 0.5)
+      x: Math.round(r.x - 0.5),
+      y: Math.round(r.y - 0.5)
     };
   });
+
+  // Normalize so the top-left cell is always at (0,0)
+  return normalizePoints(rotated);
 };
+
 
 // Helper to rotate a point around a center
 const rotateAround = (point: Point, center: { x: number; y: number }, rotation: number): Point => {
@@ -253,9 +257,12 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
     offsetX: 2,
     offsetY: 2,
     blocks: [
+      // Row 0: I (horizontal 4 wide)        covers (2,2)(3,2)(4,2)(5,2)
       { type: 'I', targetX: 2, targetY: 2, targetRot: 0 },
+      // Rows 1-2: two O pieces              covers (2,3)(3,3)(2,4)(3,4) and (4,3)(5,3)(4,4)(5,4)
       { type: 'O', targetX: 2, targetY: 3, targetRot: 0 },
       { type: 'O', targetX: 4, targetY: 3, targetRot: 0 },
+      // Row 3: I (horizontal 4 wide)        covers (2,5)(3,5)(4,5)(5,5)
       { type: 'I', targetX: 2, targetY: 5, targetRot: 0 },
     ]
   },
@@ -265,13 +272,22 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
     offsetX: 2,
     offsetY: 1,
     blocks: [
-      // Filling Rows 1-6 with I, O, O, I, O, O
-      { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
-      { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
-      { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
-      { type: 'I', targetX: 2, targetY: 4, targetRot: 0 },
-      { type: 'O', targetX: 2, targetY: 5, targetRot: 0 },
-      { type: 'O', targetX: 4, targetY: 5, targetRot: 0 },
+      // Grid x=[2..5], y=[1..6], 24 cells total, 6 pieces
+      //
+      // Verified layout (no overlaps):
+      //   y=1:     I(rot=0)   at (2,1) → (2,1)(3,1)(4,1)(5,1)
+      //   y=2-4:   L(rot=90)  at (2,2) → (2,2)(2,3)(2,4)(3,4)
+      //            O(rot=0)   at (3,2) → (3,2)(4,2)(3,3)(4,3)
+      //            J(rot=270) at (4,2) → (5,2)(5,3)(5,4)(4,4)
+      //   y=5-6:   O(rot=0)   at (2,5) → (2,5)(3,5)(2,6)(3,6)
+      //            O(rot=0)   at (4,5) → (4,5)(5,5)(4,6)(5,6)
+      //   Total: 24 cells ✓  No overlaps ✓
+      { type: 'I',  targetX: 2, targetY: 1, targetRot: 0   },  // top row
+      { type: 'L',  targetX: 2, targetY: 2, targetRot: 90  },  // left column 3-tall
+      { type: 'O',  targetX: 3, targetY: 2, targetRot: 0   },  // center 2x2
+      { type: 'J',  targetX: 4, targetY: 2, targetRot: 270 },  // right column 3-tall
+      { type: 'O',  targetX: 2, targetY: 5, targetRot: 0   },  // bottom-left 2x2
+      { type: 'O',  targetX: 4, targetY: 5, targetRot: 0   },  // bottom-right 2x2
     ]
   }
 };
@@ -348,103 +364,71 @@ export default function App() {
   };
 
   const checkGrouping = (currentBlocks: Tetromino[]) => {
-    const newBlocks = [...currentBlocks];
+    // Deep-copy positions to avoid mutation issues
+    const newBlocks = currentBlocks.map(b => ({ ...b, position: { ...b.position } }));
     let changed = false;
+    let didMerge = true;
 
-    // Helper to calculate centroid of a group
-    const getGroupCentroid = (group: Tetromino[], refBlock: Tetromino) => {
-      let tx = 0, ty = 0, count = 0;
-      group.forEach(b => {
-        const center = TETROMINO_CENTERS[b.type];
-        const relX = b.targetPosition.x - refBlock.targetPosition.x;
-        const relY = b.targetPosition.y - refBlock.targetPosition.y;
-        tx += (relX + center.x);
-        ty += (relY + center.y);
-        count++;
-      });
-      return { x: tx / count, y: ty / count };
-    };
+    while (didMerge) {
+      didMerge = false;
 
-    for (let i = 0; i < newBlocks.length; i++) {
-      for (let j = i + 1; j < newBlocks.length; j++) {
-        const a = newBlocks[i];
-        const b = newBlocks[j];
+      outer:
+      for (let i = 0; i < newBlocks.length; i++) {
+        for (let j = i + 1; j < newBlocks.length; j++) {
+          const a = newBlocks[i];
+          const b = newBlocks[j];
 
-        if (!a.isPlaced || !b.isPlaced || a.groupId === b.groupId) continue;
+          if (a.groupId === b.groupId) continue;
 
-        // Relative rotation offset from target
-        const offsetA = ((a.rotation - a.targetRotation) % 360 + 360) % 360;
-        const offsetB = ((b.rotation - b.targetRotation) % 360 + 360) % 360;
+          // Both must have the same rotation offset from their target
+          const offsetA = ((a.rotation - a.targetRotation) % 360 + 360) % 360;
+          const offsetB = ((b.rotation - b.targetRotation) % 360 + 360) % 360;
+          if (offsetA !== offsetB) continue;
 
-        if (offsetA !== offsetB) continue;
+          // When two pieces are in correct relative position (with rotation applied),
+          // the actual position difference equals the target position difference rotated by offsetA.
+          const tdx = a.targetPosition.x - b.targetPosition.x;
+          const tdy = a.targetPosition.y - b.targetPosition.y;
 
-        const centerA = TETROMINO_CENTERS[a.type];
-        const centerB = TETROMINO_CENTERS[b.type];
+          // Rotate the target delta by the same rotation offset
+          const rotated = rotateAround({ x: tdx, y: tdy }, { x: 0, y: 0 }, offsetA);
+          const expectedRelX = Math.round(rotated.x);
+          const expectedRelY = Math.round(rotated.y);
 
-        const targetCenterX = a.targetPosition.x + centerA.x - (b.targetPosition.x + centerB.x);
-        const targetCenterY = a.targetPosition.y + centerA.y - (b.targetPosition.y + centerB.y);
-        
-        const rotatedTargetCenterRelRaw = rotateAround({ x: targetCenterX, y: targetCenterY }, { x: 0, y: 0 }, offsetA);
-        
-        const expectedRelX = rotatedTargetCenterRelRaw.x - centerA.x + centerB.x;
-        const expectedRelY = rotatedTargetCenterRelRaw.y - centerA.y + centerB.y;
+          // Actual relative position (rounded to nearest grid cell)
+          const actualRelX = Math.round(a.position.x - b.position.x);
+          const actualRelY = Math.round(a.position.y - b.position.y);
 
-        const relX = a.position.x - b.position.x;
-        const relY = a.position.y - b.position.y;
+          if (actualRelX === expectedRelX && actualRelY === expectedRelY) {
+            // Merge group B into group A, snapping B blocks to exact integer position
+            const oldGroupId = b.groupId;
+            const newGroupId = a.groupId;
 
-        if (Math.abs(relX - expectedRelX) < 0.5 && Math.abs(relY - expectedRelY) < 0.5) {
-          // Merge groups and snap to exact relative position
-          const oldGroupId = b.groupId;
-          const newGroupId = a.groupId;
-          
-          const snapDx = expectedRelX - relX;
-          const snapDy = expectedRelY - relY;
+            // Sub-grid snap correction
+            const snapDx = expectedRelX - (a.position.x - b.position.x);
+            const snapDy = expectedRelY - (a.position.y - b.position.y);
 
-          // Calculate centroids before merge
-          const groupA = newBlocks.filter(block => block.groupId === newGroupId);
-          const centroidA = getGroupCentroid(groupA, a);
-          
-          // Snap B to A
-          for (let k = 0; k < newBlocks.length; k++) {
-            if (newBlocks[k].groupId === oldGroupId) {
-              newBlocks[k].groupId = newGroupId;
-              newBlocks[k].position.x -= snapDx;
-              newBlocks[k].position.y -= snapDy;
+            for (let k = 0; k < newBlocks.length; k++) {
+              if (newBlocks[k].groupId === oldGroupId) {
+                newBlocks[k] = {
+                  ...newBlocks[k],
+                  groupId: newGroupId,
+                  position: {
+                    x: newBlocks[k].position.x + snapDx,
+                    y: newBlocks[k].position.y + snapDy,
+                  }
+                };
+              }
             }
+
+            changed = true;
+            didMerge = true;
+            break outer;
           }
-
-          // Calculate new centroid after merge
-          const mergedGroup = newBlocks.filter(block => block.groupId === newGroupId);
-          const centroidNew = getGroupCentroid(mergedGroup, a);
-
-          // Adjust positions to prevent visual jumping due to centroid change
-          const rad = (offsetA * Math.PI) / 180;
-          const cos = Math.round(Math.cos(rad));
-          const sin = Math.round(Math.sin(rad));
-          
-          const dcx = centroidA.x - centroidNew.x;
-          const dcy = centroidA.y - centroidNew.y;
-          
-          const rotatedDcx = dcx * cos - dcy * sin;
-          const rotatedDcy = dcx * sin + dcy * cos;
-          
-          const adjustX = dcx - rotatedDcx;
-          const adjustY = dcy - rotatedDcy;
-
-          for (let k = 0; k < newBlocks.length; k++) {
-            if (newBlocks[k].groupId === newGroupId) {
-              newBlocks[k].position.x += adjustX;
-              newBlocks[k].position.y += adjustY;
-            }
-          }
-
-          changed = true;
-          // Restart the loop so the newly merged group can snap to other groups
-          i = -1;
-          break;
         }
       }
     }
+
     return changed ? newBlocks : currentBlocks;
   };
 
@@ -455,7 +439,6 @@ export default function App() {
 
       const groupId = targetBlock.groupId;
       setActiveGroupId(groupId);
-      const group = prev.filter(b => b.groupId === groupId);
       
       const rotatedBlocks = prev.map(b => {
         if (b.groupId !== groupId) return b;
@@ -646,4 +629,3 @@ export default function App() {
     </div>
   );
 }
-
