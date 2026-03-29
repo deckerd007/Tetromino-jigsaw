@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetromino Jigsaw Puzzle</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Framer Motion -->
+    <script src="https://unpkg.com/framer-motion@11.0.8/dist/framer-motion.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;900&family=Playfair+Display:ital,wght@1,400;1,900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #E4E3E0;
+            color: #141414;
+        }
+
+        .font-serif {
+            font-family: 'Playfair Display', serif;
+        }
+
+        .tetromino-block {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+        const { motion, AnimatePresence } = FramerMotion;
+        const { RotateCcw, RotateCw, Trash2, CheckCircle2, Trophy, Info } = LucideReact;
+
+        // Constants
+        const GRID_SIZE = 8;
+        const CELL_SIZE = 40;
+
+        const TETROMINO_SHAPES = {
+            I: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }],
+            J: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+            L: [{ x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+            O: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+            S: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
+            T: [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+            Z: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+        };
+
+        const TETROMINO_COLORS = {
+            I: '#00f0f0',
+            J: '#0000f0',
+            L: '#f0a000',
+            O: '#f0f000',
+            S: '#00f000',
+            T: '#a000f0',
+            Z: '#f00000',
+        };
+
+        const TETROMINO_CENTERS = {
+            I: {x: 2, y: 1},
+            J: {x: 1.5, y: 1.5},
+            L: {x: 1.5, y: 1.5},
+            O: {x: 1, y: 1},
+            S: {x: 1.5, y: 1.5},
+            T: {x: 1.5, y: 1.5},
+            Z: {x: 1.5, y: 1.5}
+        };
+
+        // Helpers
+        const rotatePoints = (type, rotation) => {
+            const points = TETROMINO_SHAPES[type];
+            if (rotation % 360 === 0) return points;
+            
+            const cx = TETROMINO_CENTERS[type].x;
+            const cy = TETROMINO_CENTERS[type].y;
+            
+            return points.map(p => {
+                // Center of the cell
+                const cellCx = p.x + 0.5;
+                const cellCy = p.y + 0.5;
+                
+                // Rotate around local center
+                const rotated = rotateAround({ x: cellCx, y: cellCy }, { x: cx, y: cy }, rotation);
+                
+                // Convert back to top-left coordinate
+                return {
+                    x: Math.round(rotated.x - 0.5),
+                    y: Math.round(rotated.y - 0.5)
+                };
+            });
+        };
+
+        const rotateAround = (point, center, rotation) => {
+            const rad = (rotation * Math.PI) / 180;
+            const cos = Math.round(Math.cos(rad));
+            const sin = Math.round(Math.sin(rad));
+            
+            const dx = point.x - center.x;
+            const dy = point.y - center.y;
+            
+            return {
+                x: dx * cos - dy * sin + center.x,
+                y: dx * sin + dy * cos + center.y
+            };
+        };
+
+        const BlockGroup = ({ 
+            blocks, 
+            onDragEnd, 
+            onRotate,
+            imageUrl,
+            activeGroupId,
+            onDragStart
+        }) => {
+            const refBlock = blocks[0];
+            const isActive = activeGroupId === refBlock.groupId;
+
+            const centroid = useMemo(() => {
+                let tx = 0, ty = 0, count = 0;
+                blocks.forEach(b => {
+                    const center = TETROMINO_CENTERS[b.type];
+                    const relX = b.targetPosition.x - refBlock.targetPosition.x;
+                    const relY = b.targetPosition.y - refBlock.targetPosition.y;
+                    tx += (relX + center.x);
+                    ty += (relY + center.y);
+                    count++;
+                });
+                return { x: (tx / count) * CELL_SIZE, y: (ty / count) * CELL_SIZE };
+            }, [blocks, refBlock]);
+            
+            return (
+                <motion.div
+                    layout
+                    drag
+                    dragMomentum={false}
+                    onDragStart={() => onDragStart(refBlock.groupId)}
+                    onDragEnd={(event, info) => onDragEnd(refBlock, event, info)}
+                    className="absolute cursor-grab active:cursor-grabbing z-10 tetromino-block drop-shadow-md"
+                    initial={false}
+                    animate={{
+                        x: refBlock.position.x * CELL_SIZE,
+                        y: refBlock.position.y * CELL_SIZE,
+                        rotate: refBlock.rotation - refBlock.targetRotation,
+                        zIndex: isActive ? 100 : 10,
+                    }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                    style={{
+                        left: 0,
+                        top: 0,
+                        width: CELL_SIZE,
+                        height: CELL_SIZE,
+                        transformOrigin: `${centroid.x}px ${centroid.y}px`
+                    }}
+                >
+                    {blocks.map(block => {
+                        const targetShape = rotatePoints(block.type, block.targetRotation);
+                        const relX = block.targetPosition.x - refBlock.targetPosition.x;
+                        const relY = block.targetPosition.y - refBlock.targetPosition.y;
+
+                        return (
+                            <motion.div 
+                                key={block.id} 
+                                className="absolute"
+                                style={{ 
+                                    left: relX * CELL_SIZE, 
+                                    top: relY * CELL_SIZE,
+                                    width: CELL_SIZE,
+                                    height: CELL_SIZE
+                                }}
+                                onTap={() => onRotate(block.id)}
+                            >
+                                {targetShape.map((p, i) => {
+                                    const solvedX = block.targetPosition.x + p.x;
+                                    const solvedY = block.targetPosition.y + p.y;
+
+                                    return (
+                                        <div
+                                            key={i}
+                                            className="absolute overflow-hidden"
+                                            style={{
+                                                width: CELL_SIZE,
+                                                height: CELL_SIZE,
+                                                left: p.x * CELL_SIZE,
+                                                top: p.y * CELL_SIZE,
+                                                backgroundColor: '#f0f0f0',
+                                                backgroundImage: imageUrl ? `url(${imageUrl})` : 'none',
+                                                backgroundSize: `${GRID_SIZE * CELL_SIZE}px ${GRID_SIZE * CELL_SIZE}px`,
+                                                backgroundPosition: `-${solvedX * CELL_SIZE}px -${solvedY * CELL_SIZE}px`,
+                                            }}
+                                        />
+                                    );
+                                })}
+                            </motion.div>
+                        );
+                    })}
+                </motion.div>
+            );
+        };
+
+        const PUZZLE_CONFIGS = {
+            '4x4': {
+                width: 4,
+                height: 4,
+                offsetX: 2,
+                offsetY: 2,
+                blocks: [
+                    { type: 'I', targetX: 2, targetY: 2, targetRot: 0 },
+                    { type: 'O', targetX: 2, targetY: 3, targetRot: 0 },
+                    { type: 'O', targetX: 4, targetY: 3, targetRot: 0 },
+                    { type: 'I', targetX: 2, targetY: 5, targetRot: 0 },
+                ]
+            },
+            '4x6': {
+                width: 4,
+                height: 6,
+                offsetX: 2,
+                offsetY: 1,
+                blocks: [
+                    { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
+                    { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
+                    { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
+                    { type: 'J', targetX: 3, targetY: 4, targetRot: 90 },
+                    { type: 'L', targetX: 4, targetY: 6, targetRot: 270 },
+                    { type: 'O', targetX: 3, targetY: 5, targetRot: 0 },
+                ]
+            }
+        };
+
+        function App() {
+            const [blocks, setBlocks] = useState([]);
+            const [targetGrid, setTargetGrid] = useState([]);
+            const [gameWon, setGameWon] = useState(false);
+            const [puzzleImage, setPuzzleImage] = useState('');
+            const [selectedSize, setSelectedSize] = useState('4x4');
+            const [gameStarted, setGameStarted] = useState(false);
+            const [activeGroupId, setActiveGroupId] = useState(null);
+            const boardRef = useRef(null);
+
+            useEffect(() => {
+                startNewGame(selectedSize);
+            }, [selectedSize]);
+
+            const startNewGame = (size = selectedSize) => {
+                const config = PUZZLE_CONFIGS[size];
+                if (!config) return;
+
+                const newGrid = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(false));
+                
+                for (let y = config.offsetY; y < config.offsetY + config.height; y++) {
+                    for (let x = config.offsetX; x < config.offsetX + config.width; x++) {
+                        newGrid[y][x] = true;
+                    }
+                }
+                setTargetGrid(newGrid);
+
+                const randomSeed = Math.floor(Math.random() * 1000);
+                const imageUrl = `https://picsum.photos/seed/${randomSeed}/400/400`;
+                setPuzzleImage(imageUrl);
+
+                const initialBlocks = config.blocks.map((blockConfig, i) => {
+                    const id = `block-${i}-${Date.now()}`;
+                    
+                    return {
+                        id,
+                        groupId: id,
+                        type: blockConfig.type,
+                        position: { x: blockConfig.targetX, y: blockConfig.targetY },
+                        rotation: blockConfig.targetRot,
+                        isPlaced: true,
+                        color: TETROMINO_COLORS[blockConfig.type],
+                        targetPosition: { x: blockConfig.targetX, y: blockConfig.targetY },
+                        targetRotation: blockConfig.targetRot,
+                    };
+                });
+                
+                setBlocks(initialBlocks);
+                setGameWon(false);
+                setGameStarted(false);
+            };
+
+            const shuffleBlocks = () => {
+                setBlocks(prev => {
+                    return prev.map(block => ({
+                        ...block,
+                        groupId: block.id,
+                        position: {
+                            x: Math.floor(Math.random() * (GRID_SIZE - 2)),
+                            y: Math.floor(Math.random() * (GRID_SIZE - 2))
+                        },
+                        rotation: [0, 90, 180, 270][Math.floor(Math.random() * 4)]
+                    }));
+                });
+                setGameStarted(true);
+                setGameWon(false);
+            };
+
+            const checkGrouping = (currentBlocks) => {
+                const newBlocks = [...currentBlocks];
+                let changed = false;
+
+                // Helper to calculate centroid of a group
+                const getGroupCentroid = (group, refBlock) => {
+                    let tx = 0, ty = 0, count = 0;
+                    group.forEach(b => {
+                        const center = TETROMINO_CENTERS[b.type];
+                        const relX = b.targetPosition.x - refBlock.targetPosition.x;
+                        const relY = b.targetPosition.y - refBlock.targetPosition.y;
+                        tx += (relX + center.x);
+                        ty += (relY + center.y);
+                        count++;
+                    });
+                    return { x: tx / count, y: ty / count };
+                };
+
+                for (let i = 0; i < newBlocks.length; i++) {
+                    for (let j = i + 1; j < newBlocks.length; j++) {
+                        const a = newBlocks[i];
+                        const b = newBlocks[j];
+
+                        if (a.groupId === b.groupId) continue;
+
+                        const offsetA = ((a.rotation - a.targetRotation) % 360 + 360) % 360;
+                        const offsetB = ((b.rotation - b.targetRotation) % 360 + 360) % 360;
+
+                        if (offsetA !== offsetB) continue;
+
+                        const centerA = TETROMINO_CENTERS[a.type];
+                        const centerB = TETROMINO_CENTERS[b.type];
+
+                        const targetCenterX = a.targetPosition.x + centerA.x - (b.targetPosition.x + centerB.x);
+                        const targetCenterY = a.targetPosition.y + centerA.y - (b.targetPosition.y + centerB.y);
+                        
+                        const rotatedTargetCenterRelRaw = rotateAround({ x: targetCenterX, y: targetCenterY }, { x: 0, y: 0 }, offsetA);
+                        
+                        const expectedRelX = rotatedTargetCenterRelRaw.x - centerA.x + centerB.x;
+                        const expectedRelY = rotatedTargetCenterRelRaw.y - centerA.y + centerB.y;
+
+                        const relX = a.position.x - b.position.x;
+                        const relY = a.position.y - b.position.y;
+
+                        if (Math.abs(relX - expectedRelX) < 0.3 && Math.abs(relY - expectedRelY) < 0.3) {
+                            const oldGroupId = b.groupId;
+                            const newGroupId = a.groupId;
+                            
+                            const snapDx = expectedRelX - relX;
+                            const snapDy = expectedRelY - relY;
+
+                            // Calculate centroids before merge
+                            const groupA = newBlocks.filter(block => block.groupId === newGroupId);
+                            const centroidA = getGroupCentroid(groupA, a);
+
+                            for (let k = 0; k < newBlocks.length; k++) {
+                                if (newBlocks[k].groupId === oldGroupId) {
+                                    newBlocks[k].groupId = newGroupId;
+                                    newBlocks[k].position.x -= snapDx;
+                                    newBlocks[k].position.y -= snapDy;
+                                }
+                            }
+
+                            // Calculate new centroid after merge
+                            const mergedGroup = newBlocks.filter(block => block.groupId === newGroupId);
+                            const centroidNew = getGroupCentroid(mergedGroup, a);
+
+                            // Adjust positions to prevent visual jumping due to centroid change
+                            const rad = (offsetA * Math.PI) / 180;
+                            const cos = Math.round(Math.cos(rad));
+                            const sin = Math.round(Math.sin(rad));
+                            
+                            const dcx = centroidA.x - centroidNew.x;
+                            const dcy = centroidA.y - centroidNew.y;
+                            
+                            const rotatedDcx = dcx * cos - dcy * sin;
+                            const rotatedDcy = dcx * sin + dcy * cos;
+                            
+                            const adjustX = dcx - rotatedDcx;
+                            const adjustY = dcy - rotatedDcy;
+
+                            for (let k = 0; k < newBlocks.length; k++) {
+                                if (newBlocks[k].groupId === newGroupId) {
+                                    newBlocks[k].position.x += adjustX;
+                                    newBlocks[k].position.y += adjustY;
+                                }
+                            }
+
+                            changed = true;
+                        }
+                    }
+                }
+                return changed ? newBlocks : currentBlocks;
+            };
+
+            const handleRotate = (id) => {
+                setBlocks(prev => {
+                    const targetBlock = prev.find(b => b.id === id);
+                    if (!targetBlock) return prev;
+
+                    const groupId = targetBlock.groupId;
+                    setActiveGroupId(groupId);
+                    
+                    const rotatedBlocks = prev.map(b => {
+                        if (b.groupId !== groupId) return b;
+                        return {
+                            ...b,
+                            rotation: b.rotation + 90
+                        };
+                    });
+
+                    return checkGrouping(rotatedBlocks);
+                });
+            };
+
+            const onDragEnd = (block, event, info) => {
+                setActiveGroupId(null);
+                setBlocks(prev => {
+                    const groupId = block.groupId;
+                    const dx = Math.round(info.offset.x / CELL_SIZE);
+                    const dy = Math.round(info.offset.y / CELL_SIZE);
+
+                    if (dx === 0 && dy === 0) return prev;
+
+                    const nextBlocks = prev.map(b => 
+                        b.groupId === groupId ? { ...b, position: { x: b.position.x + dx, y: b.position.y + dy } } : b
+                    );
+                    
+                    return checkGrouping(nextBlocks);
+                });
+            };
+
+            useEffect(() => {
+                if (blocks.length === 0 || !gameStarted) return;
+
+                const allCorrect = blocks.every(block => {
+                    const posDiff = Math.sqrt(
+                        Math.pow(block.position.x - block.targetPosition.x, 2) + 
+                        Math.pow(block.position.y - block.targetPosition.y, 2)
+                    );
+                    const rotDiff = (Math.abs(block.rotation - block.targetRotation) % 360 + 360) % 360;
+                    
+                    // Relaxed threshold for better reliability
+                    return posDiff < 0.5 && (rotDiff < 10 || rotDiff > 350);
+                });
+
+                if (allCorrect) {
+                    setGameWon(true);
+                }
+            }, [blocks, gameStarted]);
+
+            const groupedBlocks = useMemo(() => {
+                const groups = blocks.reduce((acc, block) => {
+                    if (!acc[block.groupId]) acc[block.groupId] = [];
+                    acc[block.groupId].push(block);
+                    return acc;
+                }, {});
+
+                Object.keys(groups).forEach(id => {
+                    groups[id].sort((a, b) => a.id.localeCompare(b.id));
+                });
+
+                return groups;
+            }, [blocks]);
+
+            return (
+                <div className="min-h-screen bg-[#E4E3E0] text-[#141414] p-4 sm:p-8 flex flex-col items-center overflow-x-hidden">
+                    <header className="w-full max-w-4xl flex flex-wrap justify-between items-center border-b-2 border-[#141414] pb-4 mb-8 gap-4">
+                        <div className="flex flex-col">
+                            <h1 className="text-4xl sm:text-6xl font-black uppercase tracking-tighter leading-none">Tetromino</h1>
+                            <h2 className="text-xl sm:text-2xl font-serif italic opacity-60">Jigsaw Puzzle</h2>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                            <div className="flex bg-[#141414]/10 p-1 rounded-sm">
+                                {['4x4', '4x6'].map(size => (
+                                    <button
+                                        key={size}
+                                        onClick={() => setSelectedSize(size)}
+                                        className={`px-4 py-1 font-bold uppercase tracking-widest transition-all ${
+                                            selectedSize === size 
+                                                ? 'bg-[#141414] text-[#E4E3E0]' 
+                                                : 'text-[#141414] hover:bg-[#141414]/5'
+                                        }`}
+                                    >
+                                        {size}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {!gameStarted ? (
+                                <button 
+                                    onClick={shuffleBlocks}
+                                    className="px-6 py-2 bg-[#141414] text-[#E4E3E0] font-bold uppercase tracking-widest hover:bg-opacity-80 transition-all flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none"
+                                >
+                                    <Trash2 size={18} />
+                                    Shuffle
+                                </button>
+                            ) : (
+                                <button 
+                                    onClick={() => startNewGame()}
+                                    className="px-6 py-2 bg-[#141414] text-[#E4E3E0] font-bold uppercase tracking-widest hover:bg-opacity-80 transition-all flex items-center gap-2 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)] active:translate-y-1 active:shadow-none"
+                                >
+                                    <RotateCcw size={18} />
+                                    Reset
+                                </button>
+                            )}
+                        </div>
+                    </header>
+
+                    <main className="w-full max-w-5xl flex flex-col items-center gap-8">
+                        <div className="relative">
+                            <div 
+                                ref={boardRef}
+                                className="relative border-4 border-[#141414] bg-white shadow-[8px_8px_0px_0px_rgba(20,20,20,1)]"
+                                style={{ 
+                                    width: Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40), 
+                                    height: Math.min(GRID_SIZE * CELL_SIZE, window.innerWidth - 40),
+                                }}
+                            >
+                                {PUZZLE_CONFIGS[selectedSize] && (
+                                    <div 
+                                        className="absolute border-4 border-dashed border-[#141414] pointer-events-none z-0"
+                                        style={{
+                                            left: PUZZLE_CONFIGS[selectedSize].offsetX * CELL_SIZE,
+                                            top: PUZZLE_CONFIGS[selectedSize].offsetY * CELL_SIZE,
+                                            width: PUZZLE_CONFIGS[selectedSize].width * CELL_SIZE,
+                                            height: PUZZLE_CONFIGS[selectedSize].height * CELL_SIZE,
+                                            backgroundColor: 'rgba(20,20,20,0.03)'
+                                        }}
+                                    />
+                                )}
+
+                                {Object.entries(groupedBlocks).map(([groupId, groupBlocks]) => (
+                                    <BlockGroup 
+                                        key={groupId} 
+                                        blocks={groupBlocks} 
+                                        onDragEnd={onDragEnd} 
+                                        onRotate={handleRotate}
+                                        imageUrl={puzzleImage}
+                                        activeGroupId={activeGroupId}
+                                        onDragStart={setActiveGroupId}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="max-w-2xl text-center px-4">
+                            <p className="text-sm uppercase tracking-widest font-bold opacity-40 mb-2">Instructions</p>
+                            <p className="text-base sm:text-lg">
+                                Drag the pieces to fill the <span className="font-bold underline">shaded area</span>. 
+                                Click a piece to <span className="font-bold underline">rotate around its center</span>. 
+                                Pieces will <span className="font-bold underline">snap together</span> when aligned correctly.
+                            </p>
+                        </div>
+                    </main>
+
+                    <AnimatePresence>
+                        {gameWon && (
+                            <motion.div 
+                                initial={{ opacity: 0, y: 50 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 50 }}
+                                className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md"
+                            >
+                                <div className="bg-[#141414] text-[#E4E3E0] p-6 sm:p-8 border-4 border-white shadow-[12px_12px_0px_0px_rgba(20,20,20,0.5)] text-center">
+                                    <div className="flex items-center justify-center gap-4 mb-4">
+                                        <Trophy className="text-yellow-400" size={32} />
+                                        <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter">Puzzle Solved!</h2>
+                                    </div>
+                                    <p className="font-serif italic text-lg mb-6 opacity-80">You've successfully completed the image.</p>
+                                    <button 
+                                        onClick={startNewGame}
+                                        className="w-full py-3 bg-[#E4E3E0] text-[#141414] font-black uppercase tracking-widest hover:bg-white transition-all flex items-center justify-center gap-3"
+                                    >
+                                        <RotateCcw size={20} />
+                                        Play Again
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
