@@ -10,13 +10,13 @@ import { Tetromino, TetrominoType, Point } from './types';
 import { TETROMINO_SHAPES, TETROMINO_COLORS, GRID_SIZE, CELL_SIZE } from './constants';
 
 const TETROMINO_CENTERS: Record<TetrominoType, {x: number, y: number}> = {
-  I: {x: 2, y: 1},
-  J: {x: 1.5, y: 1.5},
-  L: {x: 1.5, y: 1.5},
+  I: {x: 2, y: 0.5},
+  J: {x: 1.5, y: 1.0},
+  L: {x: 1.5, y: 1.0},
   O: {x: 1, y: 1},
-  S: {x: 1.5, y: 1.5},
-  T: {x: 1.5, y: 1.5},
-  Z: {x: 1.5, y: 1.5}
+  S: {x: 1.5, y: 1.0},
+  T: {x: 1.5, y: 1.0},
+  Z: {x: 1.5, y: 1.0}
 };
 
 // Helper to rotate points
