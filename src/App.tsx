@@ -265,14 +265,13 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
     offsetX: 2,
     offsetY: 1,
     blocks: [
-      // Top section (I, O, O) - Rows 1, 2, 3
+      // Filling Rows 1-6 with I, O, O, I, O, O
       { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
       { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
       { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
-      // Bottom section (J, L, O) - Rows 4, 5, 6
-      { type: 'J', targetX: 3, targetY: 4, targetRot: 90 },
-      { type: 'L', targetX: 4, targetY: 6, targetRot: 270 },
-      { type: 'O', targetX: 3, targetY: 5, targetRot: 0 },
+      { type: 'I', targetX: 2, targetY: 4, targetRot: 0 },
+      { type: 'O', targetX: 2, targetY: 5, targetRot: 0 },
+      { type: 'O', targetX: 4, targetY: 5, targetRot: 0 },
     ]
   }
 };
@@ -393,7 +392,7 @@ export default function App() {
         const relX = a.position.x - b.position.x;
         const relY = a.position.y - b.position.y;
 
-        if (Math.abs(relX - expectedRelX) < 0.3 && Math.abs(relY - expectedRelY) < 0.3) {
+        if (Math.abs(relX - expectedRelX) < 0.5 && Math.abs(relY - expectedRelY) < 0.5) {
           // Merge groups and snap to exact relative position
           const oldGroupId = b.groupId;
           const newGroupId = a.groupId;
@@ -403,7 +402,6 @@ export default function App() {
 
           // Calculate centroids before merge
           const groupA = newBlocks.filter(block => block.groupId === newGroupId);
-          const groupB = newBlocks.filter(block => block.groupId === oldGroupId);
           const centroidA = getGroupCentroid(groupA, a);
           
           // Snap B to A
@@ -441,6 +439,9 @@ export default function App() {
           }
 
           changed = true;
+          // Restart the loop so the newly merged group can snap to other groups
+          i = -1;
+          break;
         }
       }
     }
@@ -491,13 +492,12 @@ export default function App() {
     // Win condition: Check if all blocks are close to their target positions and rotations
     const allCorrect = blocks.every(block => {
       const posDiff = Math.sqrt(
-        Math.pow(block.position.x - block.targetPosition.x, 2) + 
-        Math.pow(block.position.y - block.targetPosition.y, 2)
+        Math.pow(Math.round(block.position.x) - block.targetPosition.x, 2) + 
+        Math.pow(Math.round(block.position.y) - block.targetPosition.y, 2)
       );
       const rotDiff = (Math.abs(block.rotation - block.targetRotation) % 360 + 360) % 360;
       
-      // Relaxed threshold for better reliability
-      return posDiff < 0.5 && (rotDiff < 10 || rotDiff > 350);
+      return posDiff < 0.1 && (rotDiff < 10 || rotDiff > 350);
     });
 
     if (allCorrect) {
