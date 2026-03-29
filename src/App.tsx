@@ -392,7 +392,7 @@ export default function App() {
         const relX = a.position.x - b.position.x;
         const relY = a.position.y - b.position.y;
 
-        if (Math.abs(relX - expectedRelX) < 0.3 && Math.abs(relY - expectedRelY) < 0.3) {
+        if (Math.abs(relX - expectedRelX) < 0.5 && Math.abs(relY - expectedRelY) < 0.5) {
           // Merge groups and snap to exact relative position
           const oldGroupId = b.groupId;
           const newGroupId = a.groupId;
@@ -402,7 +402,6 @@ export default function App() {
 
           // Calculate centroids before merge
           const groupA = newBlocks.filter(block => block.groupId === newGroupId);
-          const groupB = newBlocks.filter(block => block.groupId === oldGroupId);
           const centroidA = getGroupCentroid(groupA, a);
           
           // Snap B to A
@@ -440,6 +439,9 @@ export default function App() {
           }
 
           changed = true;
+          // Restart the loop so the newly merged group can snap to other groups
+          i = -1;
+          break;
         }
       }
     }
@@ -490,13 +492,12 @@ export default function App() {
     // Win condition: Check if all blocks are close to their target positions and rotations
     const allCorrect = blocks.every(block => {
       const posDiff = Math.sqrt(
-        Math.pow(block.position.x - block.targetPosition.x, 2) + 
-        Math.pow(block.position.y - block.targetPosition.y, 2)
+        Math.pow(Math.round(block.position.x) - block.targetPosition.x, 2) + 
+        Math.pow(Math.round(block.position.y) - block.targetPosition.y, 2)
       );
       const rotDiff = (Math.abs(block.rotation - block.targetRotation) % 360 + 360) % 360;
       
-      // Relaxed threshold for better reliability
-      return posDiff < 0.5 && (rotDiff < 10 || rotDiff > 350);
+      return posDiff < 0.1 && (rotDiff < 10 || rotDiff > 350);
     });
 
     if (allCorrect) {
