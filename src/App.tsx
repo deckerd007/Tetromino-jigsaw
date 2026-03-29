@@ -265,14 +265,13 @@ const PUZZLE_CONFIGS: Record<PuzzleSize, { width: number; height: number; offset
     offsetX: 2,
     offsetY: 1,
     blocks: [
-      // Top section (I, O, O) - Rows 1, 2, 3
+      // Filling Rows 1-6 with I, O, O, I, O, O
       { type: 'I', targetX: 2, targetY: 1, targetRot: 0 },
       { type: 'O', targetX: 2, targetY: 2, targetRot: 0 },
       { type: 'O', targetX: 4, targetY: 2, targetRot: 0 },
-      // Bottom section (J, L, O) - Rows 4, 5, 6
-      { type: 'J', targetX: 3, targetY: 4, targetRot: 90 },
-      { type: 'L', targetX: 4, targetY: 6, targetRot: 270 },
-      { type: 'O', targetX: 3, targetY: 5, targetRot: 0 },
+      { type: 'I', targetX: 2, targetY: 4, targetRot: 0 },
+      { type: 'O', targetX: 2, targetY: 5, targetRot: 0 },
+      { type: 'O', targetX: 4, targetY: 5, targetRot: 0 },
     ]
   }
 };
